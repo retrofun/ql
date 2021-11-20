@@ -74,9 +74,9 @@ parameter CONF_STR = {
         "F,MDV,Load MDV2;",
         "F,ROM;",
         "O2,QL Speed,YES,NO;",
-        "O3,RAM,128k,640k;",
-        "O4,Video mode,PAL,NTSC;",
-        "O56,Scanlines,Off,25%,50%,75%;",
+        "O35,RAM,128k,640k,896k,1920k,3968k;",
+        "O6,Video mode,PAL,NTSC;",
+        "O78,Scanlines,Off,25%,50%,75%;",
         "T0,Reset"
 };
 
@@ -88,8 +88,8 @@ wire ypbpr, no_csync;
 
 wire [7:0] js0, js1;
 
-wire       ntsc      = status[4];
-wire [1:0] scanlines = status[6:5];
+wire       ntsc      = status[6];
+wire [1:0] scanlines = status[8:7];
 
 wire ps2_kbd_clk, ps2_kbd_data;
 wire ps2_mouse_clk, ps2_mouse_data;
@@ -204,7 +204,7 @@ assign SDRAM_CKE = 1'b1;
 // CPU and data_io share the same bus cycle. Thus the CPU cannot run while
 // (ROM) data is being downloaded which wouldn't make any sense, anyway
 // during ROM download data_io writes the ram. Otherwise the CPU
-wire [24:0] sys_addr = dio_download?dio_addr[24:0]:{ 6'b000000, cpu_addr[19:1]} ;
+wire [24:0] sys_addr = dio_download?dio_addr[24:0]:{ 4'b0000, cpu_addr[21:1] };
 wire sys_uds = dio_download?1'b1:cpu_uds;
 wire sys_lds = dio_download?1'b1:cpu_lds;
 wire [15:0] sys_dout = dio_download?dio_data:cpu_dout;
@@ -477,12 +477,19 @@ qimi qimi(
 
 // address decoding
 wire cpu_act = cpu_rd || cpu_wr;
-wire cpu_io   = cpu_act && ({cpu_addr[19:14], 2'b00} == 8'h18);   // internal IO $18000-$1bffff
-wire cpu_bram = cpu_act &&(cpu_addr[19:17] == 3'b001);           	// 128k RAM at $20000
-wire cpu_xram = cpu_act && status[3] && ((cpu_addr[19:18] == 2'b01) ||
-							(cpu_addr[19:18] == 2'b10));      				// 512k RAM at $40000 if enabled
+wire cpu_io   = cpu_act && ({cpu_addr[21:14], 2'b00} == 10'h18);   // internal IO $18000-$1bffff
+wire cpu_bram = cpu_act &&(cpu_addr[21:17] == 5'b00001);           // 128k RAM at $20000
+wire xram1 = (cpu_addr[21:20] == 2'b00) && ((cpu_addr[19:18] == 2'b01) || (cpu_addr[19:18] == 2'b10));
+wire xram2 = xram1 || ((cpu_addr[21:20] == 2'b00) && (cpu_addr[19:18] == 2'b11));
+wire xram3 = xram2 || (cpu_addr[21:20] == 2'b01);
+wire xram4 = xram3 || cpu_addr[21];
+wire cpu_xram = cpu_act &&
+			(status[5:3] == 3'b001) && xram1 || //  512k RAM at $40000-$C0000 if enabled
+			(status[5:3] == 3'b010) && xram2 || //  768k RAM at $40000-$FFFFF if enabled
+			(status[5:3] == 3'b011) && xram3 || // 1792k RAM at $40000-$1FFFFF if enabled
+			(status[5:3] == 3'b100) && xram4;   // 3840k RAM at $40000-$3FFFFF if enabled
 wire cpu_ram = cpu_bram || cpu_xram;                   				// any RAM
-wire cpu_rom  = cpu_act && (cpu_addr[19:16] == 4'h0);             // 64k ROM at $0
+wire cpu_rom  = cpu_act && (cpu_addr[21:16] == 6'h0);             // 64k ROM at $0
 wire cpu_mem  = cpu_ram || cpu_rom;                    				// any memory mapped to sdram
 
 wire [15:0] io_dout = 
